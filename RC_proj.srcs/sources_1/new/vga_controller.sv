@@ -38,11 +38,11 @@ module vga_controller (
                PaddleHeight = 5, 
                MaxBallVelocity = 5, 
                BallSize = 5,
-               FractionalBits = 0,
+               FractionalBits = 4,
                Width = 640,
                Height = 480,
-               InitialXVel = 1,
-               InitialYVel = 1;
+               InitialXVel = 24,
+               InitialYVel = 16;
 
     logic [1:0] clk_div = 0;
     always @(posedge clk) begin

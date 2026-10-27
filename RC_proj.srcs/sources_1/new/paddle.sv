@@ -54,8 +54,8 @@ module paddle #(
     logic signed [15:0] by = (Height / 2) << FractionalBits;
     logic        [15:0] py = Height - PaddleHeight - 1;
     
-    logic signed [15:0] bvx = InitialXVel << FractionalBits, 
-                        bvy = InitialYVel << FractionalBits;
+    logic signed [15:0] bvx = InitialXVel, 
+                        bvy = InitialYVel;
     
     assign bx_o = bx;
     assign by_o = by;

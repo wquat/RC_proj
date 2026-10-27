@@ -20,19 +20,30 @@
 //////////////////////////////////////////////////////////////////////////////////
 
 
-module paddle #(parameter int FRAME_TIME = 16, parameter int CLK_FREQ = 100_000_000, parameter int Width = 96, parameter int Height = 48)(
+module paddle #(
+        parameter int FRAME_TIME = 16, 
+                      CLK_FREQ = 100_000_000, 
+                      Width = 640, 
+                      Height = 480, 
+                      PaddleWidth = 10, 
+                      PaddleHeight = 2, 
+                      MaxBallVelocity = 5, 
+                      FractionalBits = 0, 
+                      BallSize = 2,
+                      InitialXVel = 1,
+                      InitialYVel = 1
+)(
     input clk,
-    input rst
-);
-
-    // parameters, constants and variables
-    localparam int PaddleWidth = 10;
-    localparam int PaddleHeight = 2;
-    localparam int MaxBallVelocity = 2;
-    localparam int FractionalBits = 0; // Power of two precision past the decimal point
-    localparam int BallSize = 2;
-    localparam int IntitialXVel = 1, IntitialYVel = 1;
-        
+    input rst,
+    
+    input btnl,
+    input btnr,
+    
+    output signed [15:0] bx_o,
+    output signed [15:0] by_o,
+    output signed [15:0] px_o,
+    output signed [15:0] py_o
+);        
     logic frame_enable;
     
     frametimer #(FRAME_TIME, CLK_FREQ) (clk, rst, frame_enable);
@@ -43,8 +54,13 @@ module paddle #(parameter int FRAME_TIME = 16, parameter int CLK_FREQ = 100_000_
     logic signed [15:0] by = (Height / 2) << FractionalBits;
     logic        [15:0] py = Height - PaddleHeight - 1;
     
-    logic signed [15:0] bvx = IntitialXVel << FractionalBits, 
-                        bvy = IntitialYVel << FractionalBits;
+    logic signed [15:0] bvx = InitialXVel << FractionalBits, 
+                        bvy = InitialYVel << FractionalBits;
+    
+    assign bx_o = bx;
+    assign by_o = by;
+    assign px_o = px;
+    assign py_o = py;
     
     typedef enum { S_IDLE, S_PLAYING, S_OVER } st;
     
@@ -71,13 +87,14 @@ module paddle #(parameter int FRAME_TIME = 16, parameter int CLK_FREQ = 100_000_
         else begin
             case (state)
                 S_IDLE: begin
-                    if (jstk_ip) next_state = S_PLAYING;
+                    // TODO: change
+                    if (btnl == 1 || btnr == 1) next_state = S_PLAYING;
                 end
                 S_PLAYING: begin
                     if (game_over) next_state = S_OVER;
                 end
                 S_OVER: begin
-                    if (jstk_ip) next_state = S_IDLE;
+                    if (btnl == 1 || btnr == 1) next_state = S_IDLE;
                 end
             endcase
         end
@@ -99,14 +116,18 @@ module paddle #(parameter int FRAME_TIME = 16, parameter int CLK_FREQ = 100_000_
             px  <= (Width  / 2) << FractionalBits;
             bx  <= (Width  / 2) << FractionalBits;
             by  <= (Height / 2) << FractionalBits;
-            bvx <= IntitialXVel  << FractionalBits; 
-            bvy <= IntitialYVel  << FractionalBits;
+            bvx <= InitialXVel  << FractionalBits; 
+            bvy <= InitialYVel  << FractionalBits;
             game_over <= 0;
         end
         else if (state == S_PLAYING && frame_enable) begin
             game_over <= 0;
             bx <= bx + bvx;
             by <= by + bvy;
+            
+            if ((px + 2 * (btnr - btnl)) > PaddleWidth / 2 && (px + 2 * (btnr - btnl)) < Width - PaddleWidth / 2) begin
+                px <= px + 2 * (btnr - btnl);
+            end
             
             if (bx + bvx >= ((Width - BallSize) << FractionalBits)) begin
                 bx <= (Width - BallSize) << FractionalBits;

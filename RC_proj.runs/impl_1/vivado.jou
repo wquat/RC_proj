@@ -2,8 +2,8 @@
 # Vivado v2020.1 (64-bit)
 # SW Build 2902540 on Wed May 27 19:54:49 MDT 2020
 # IP Build 2902112 on Wed May 27 22:43:36 MDT 2020
-# Start of session at: Tue Oct 27 14:20:38 2026
-# Process ID: 11556
+# Start of session at: Thu Oct 29 14:27:22 2026
+# Process ID: 11164
 # Current directory: C:/Users/RC-P1.DESKTOP-LJC9QMB/RC_proj/RC_proj.runs/impl_1
 # Command line: vivado.exe -log vga_controller.vdi -applog -product Vivado -messageDb vivado.pb -mode batch -source vga_controller.tcl -notrace
 # Log file: C:/Users/RC-P1.DESKTOP-LJC9QMB/RC_proj/RC_proj.runs/impl_1/vga_controller.vdi

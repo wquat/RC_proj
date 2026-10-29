@@ -28,10 +28,9 @@ module paddle #(
                       PaddleWidth = 10, 
                       PaddleHeight = 2, 
                       MaxBallVelocity = 5, 
+                      MaxPaddleVelocity = 5, 
                       FractionalBits = 0, 
-                      BallSize = 2,
-                      InitialXVel = 1,
-                      InitialYVel = 1
+                      BallSize = 2
 )(
     input clk,
     input rst,
@@ -46,7 +45,7 @@ module paddle #(
 );        
     logic frame_enable;
     
-    frametimer #(FRAME_TIME, CLK_FREQ) (clk, rst, frame_enable);
+    frametimer #(FRAME_TIME, CLK_FREQ) ft (clk, rst, frame_enable);
     
     logic signed [15:0] bx = (Width / 2)  << FractionalBits, 
                         px = (Width / 2)  << FractionalBits;
@@ -54,12 +53,17 @@ module paddle #(
     logic signed [15:0] by = (Height / 2) << FractionalBits;
     logic        [15:0] py = Height - PaddleHeight - 1;
     
-    logic signed [15:0] bvx = InitialXVel, 
-                        bvy = InitialYVel;
+    logic signed [6:0] rx, ry;
     
-    assign bx_o = bx;
-    assign by_o = by;
-    assign px_o = px;
+    // generate pseudo random num bw 16 & 31
+    rand_gen r(clk, rst, rx, ry);
+    
+    logic signed [15:0] bvx = rx, 
+                        bvy = ry;
+    
+    assign bx_o = bx >>> FractionalBits;
+    assign by_o = by >>> FractionalBits;
+    assign px_o = px >>> FractionalBits;
     assign py_o = py;
     
     typedef enum { S_IDLE, S_PLAYING, S_OVER } st;
@@ -67,16 +71,7 @@ module paddle #(
     st state = S_IDLE, next_state = S_IDLE;
     
     logic jstk_ip = 0;
-    logic game_over = 0;
-    
-    logic [15:0] bsx,
-                 psx;
-    logic [15:0] bsy;
- 
-    // get screen coords
-    assign bsx = bx >>> FractionalBits;
-    assign bsy = by >>> FractionalBits;
-    assign psx = px >>> FractionalBits;
+    logic game_over = 0; 
     
     // get next state
     always @(*) begin 
@@ -110,14 +105,17 @@ module paddle #(
         end
     end
     
+    logic signed [15:0] paddle_speed;
+    assign paddle_speed = (btnr - btnl) * MaxPaddleVelocity << FractionalBits;
+    
     // update game logic
     always_ff @(posedge clk) begin
         if (rst || state == S_IDLE) begin
             px  <= (Width  / 2) << FractionalBits;
             bx  <= (Width  / 2) << FractionalBits;
             by  <= (Height / 2) << FractionalBits;
-            bvx <= InitialXVel  << FractionalBits; 
-            bvy <= InitialYVel  << FractionalBits;
+            bvx <= rx; 
+            bvy <= ry;
             game_over <= 0;
         end
         else if (state == S_PLAYING && frame_enable) begin
@@ -125,10 +123,21 @@ module paddle #(
             bx <= bx + bvx;
             by <= by + bvy;
             
-            if ((px + 2 * (btnr - btnl)) > PaddleWidth / 2 && (px + 2 * (btnr - btnl)) < Width - PaddleWidth / 2) begin
-                px <= px + 2 * (btnr - btnl);
+            // control paddle
+            if (
+                    (px + paddle_speed) >= (PaddleWidth / 2) << FractionalBits && 
+                    (px + paddle_speed) <= (Width - PaddleWidth / 2) << FractionalBits
+                ) begin
+                px <= px + paddle_speed;
+            end
+            else begin 
+                if ((px + paddle_speed) < (PaddleWidth / 2) << FractionalBits) 
+                    px <= (PaddleWidth / 2) << FractionalBits;
+                if ((px + paddle_speed) > (Width - PaddleWidth / 2) << FractionalBits) 
+                    px <= (Width - PaddleWidth / 2) << FractionalBits;
             end
             
+            // control ball
             if (bx + bvx >= ((Width - BallSize) << FractionalBits)) begin
                 bx <= (Width - BallSize) << FractionalBits;
                 bvx <= -bvx; 

@@ -41,6 +41,7 @@ module vga_controller (
                FractionalBits = 4,
                Width = 640,
                Height = 480,
+               MaxPaddleVelocity = 5,
                InitialXVel = 24,
                InitialYVel = 16;
 
@@ -49,7 +50,8 @@ module vga_controller (
         if (rst) clk_div <= 0;
         else clk_div <= clk_div + 1;
     end
-    logic pxl_clk = clk_div[1]; 
+    logic pxl_clk;
+    assign pxl_clk = clk_div[1]; 
 
     localparam H_DISPLAY = Width; localparam H_FRONT = 16;
     localparam H_SYNC    = 96;  localparam H_BACK  = 48;
@@ -78,13 +80,17 @@ module vga_controller (
 
     assign vga_hs = ~(h_cnt >= (H_DISPLAY + H_FRONT) && h_cnt < (H_DISPLAY + H_FRONT + H_SYNC));
     assign vga_vs = ~(v_cnt >= (V_DISPLAY + V_FRONT) && v_cnt < (V_DISPLAY + V_FRONT + V_SYNC));
-    logic video_on = (h_cnt < H_DISPLAY) && (v_cnt < V_DISPLAY);
+    logic video_on;
+    assign video_on = (h_cnt < H_DISPLAY) && (v_cnt < V_DISPLAY);
     
-    logic [9:0] pixel_x = h_cnt;
-    logic [9:0] pixel_y = v_cnt;
+    logic [9:0] pixel_x;
+    assign pixel_x = h_cnt;
+    logic [9:0] pixel_y;
+    assign pixel_y = v_cnt;
     
     // Frame Tick: Triggers exactly once per frame (60 times a second)
-    logic frame_tick = (h_cnt == 0) && (v_cnt == V_TOTAL - 1);
+    logic frame_tick;
+    assign frame_tick = (h_cnt == 0) && (v_cnt == V_TOTAL - 1);
 
     logic signed [15:0] bx, by, px, py;
     
@@ -95,7 +101,8 @@ module vga_controller (
             .PaddleHeight(PaddleHeight), 
             .BallSize(BallSize), 
             .FractionalBits(FractionalBits), 
-            .MaxBallVelocity(MaxBallVelocity)
+            .MaxBallVelocity(MaxBallVelocity),
+            .MaxPaddleVelocity(MaxPaddleVelocity)
      ) p(
         .clk(clk),
         .rst(rst),
@@ -108,15 +115,18 @@ module vga_controller (
     );
 
     // Check if the current electron beam position is inside the paddle
-    logic draw_paddle = (pixel_x >= px - PaddleWidth / 2) && (pixel_x < px + PaddleWidth / 2) &&
+    logic draw_paddle;
+    assign draw_paddle = (pixel_x >= px - PaddleWidth / 2) && (pixel_x < px + PaddleWidth / 2) &&
                        (pixel_y >= py) && (pixel_y < py + PaddleHeight);
 
     // Check if the current electron beam position is inside the ball
-    logic draw_ball = (pixel_x >= bx) && (pixel_x < bx + BallSize) &&
+    logic draw_ball;
+    assign draw_ball = (pixel_x >= bx) && (pixel_x < bx + BallSize) &&
                      (pixel_y >= by) && (pixel_y < by + BallSize);
 
     // The pixel is ON if it is inside the active display area AND (it's the paddle OR the ball)
-    logic pixel_on = video_on && (draw_paddle || draw_ball);
+    logic pixel_on;
+    assign pixel_on = video_on && (draw_paddle || draw_ball);
 
     // Monochrome color mapping: White if pixel_on, Black if not.
     assign vga_r = pixel_on ? 4'hF : 4'h0;

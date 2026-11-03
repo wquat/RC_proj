@@ -1,7 +1,7 @@
 Copyright 1986-2020 Xilinx, Inc. All Rights Reserved.
 -------------------------------------------------------------------------------------------
 | Tool Version : Vivado v.2020.1 (win64) Build 2902540 Wed May 27 19:54:49 MDT 2020
-| Date         : Thu Oct 29 14:27:47 2026
+| Date         : Tue Nov  3 14:07:51 2026
 | Host         : DESKTOP-LJC9QMB running 64-bit major release  (build 9200)
 | Command      : report_control_sets -verbose -file vga_controller_control_sets_placed.rpt
 | Design       : vga_controller
@@ -23,11 +23,11 @@ Table of Contents
 +----------------------------------------------------------+-------+
 |                          Status                          | Count |
 +----------------------------------------------------------+-------+
-| Total control sets                                       |    13 |
-|    Minimum number of control sets                        |    13 |
+| Total control sets                                       |    21 |
+|    Minimum number of control sets                        |    21 |
 |    Addition due to synthesis replication                 |     0 |
 |    Addition due to physical synthesis replication        |     0 |
-| Unused register locations in slices containing registers |    48 |
+| Unused register locations in slices containing registers |    75 |
 +----------------------------------------------------------+-------+
 * Control sets can be merged at opt_design using control_set_merge or merge_equivalent_drivers
 ** Run report_qor_suggestions for automated merging and remapping suggestions
@@ -39,15 +39,15 @@ Table of Contents
 +--------------------+-------+
 |       Fanout       | Count |
 +--------------------+-------+
-| Total control sets |    13 |
+| Total control sets |    21 |
 | >= 0 to < 4        |     2 |
-| >= 4 to < 6        |     3 |
-| >= 6 to < 8        |     0 |
-| >= 8 to < 10       |     1 |
-| >= 10 to < 12      |     4 |
-| >= 12 to < 14      |     1 |
-| >= 14 to < 16      |     1 |
-| >= 16              |     1 |
+| >= 4 to < 6        |     4 |
+| >= 6 to < 8        |     4 |
+| >= 8 to < 10       |     2 |
+| >= 10 to < 12      |     3 |
+| >= 12 to < 14      |     2 |
+| >= 14 to < 16      |     0 |
+| >= 16              |     4 |
 +--------------------+-------+
 * Control sets can be remapped at either synth_design or opt_design
 
@@ -58,34 +58,42 @@ Table of Contents
 +--------------+-----------------------+------------------------+-----------------+--------------+
 | Clock Enable | Synchronous Set/Reset | Asynchronous Set/Reset | Total Registers | Total Slices |
 +--------------+-----------------------+------------------------+-----------------+--------------+
-| No           | No                    | No                     |               3 |            3 |
+| No           | No                    | No                     |               5 |            2 |
 | No           | No                    | Yes                    |               0 |            0 |
-| No           | Yes                   | No                     |              57 |           18 |
-| Yes          | No                    | No                     |              25 |           10 |
+| No           | Yes                   | No                     |              65 |           18 |
+| Yes          | No                    | No                     |              69 |           26 |
 | Yes          | No                    | Yes                    |               0 |            0 |
-| Yes          | Yes                   | No                     |              59 |           21 |
+| Yes          | Yes                   | No                     |              74 |           29 |
 +--------------+-----------------------+------------------------+-----------------+--------------+
 
 
 4. Detailed Control Set Information
 -----------------------------------
 
-+----------------+-------------------+---------------------+------------------+----------------+--------------+
-|  Clock Signal  |   Enable Signal   |   Set/Reset Signal  | Slice Load Count | Bel Load Count | Bels / Slice |
-+----------------+-------------------+---------------------+------------------+----------------+--------------+
-|  clk_IBUF_BUFG |                   |                     |                3 |              3 |         1.00 |
-|  clk_IBUF_BUFG | p/ft/state_reg[0] | p/ft/state_reg[0]_0 |                2 |              3 |         1.50 |
-|  clk_IBUF_BUFG | p/by[12]_i_2_n_0  | p/px1               |                2 |              4 |         2.00 |
-|  clk_IBUF_BUFG | p/bvx[4]_i_1_n_0  |                     |                2 |              5 |         2.50 |
-|  clk_IBUF_BUFG | p/bvy[4]_i_1_n_0  |                     |                2 |              5 |         2.50 |
-|  clk_IBUF_BUFG | p/ft/state_reg[0] | p/ft/state_reg[1]_1 |                5 |              8 |         1.60 |
-|  pxl_clk       |                   | rst_IBUF            |                4 |             10 |         2.50 |
-|  pxl_clk       | v_cnt             | rst_IBUF            |                4 |             10 |         2.50 |
-|  clk_IBUF_BUFG | p/bvx[4]_i_1_n_0  | p/bvx[15]_i_1_n_0   |                2 |             11 |         5.50 |
-|  clk_IBUF_BUFG | p/bvy[4]_i_1_n_0  | p/bvy[15]_i_1_n_0   |                2 |             11 |         5.50 |
-|  clk_IBUF_BUFG | p/ft/E[0]         | p/by[15]_i_1_n_0    |                4 |             12 |         3.00 |
-|  clk_IBUF_BUFG | p/ft/state_reg[0] |                     |                6 |             15 |         2.50 |
-|  clk_IBUF_BUFG |                   | rst_IBUF            |               14 |             47 |         3.36 |
-+----------------+-------------------+---------------------+------------------+----------------+--------------+
++----------------+-----------------------------------+--------------------------------+------------------+----------------+--------------+
+|  Clock Signal  |           Enable Signal           |        Set/Reset Signal        | Slice Load Count | Bel Load Count | Bels / Slice |
++----------------+-----------------------------------+--------------------------------+------------------+----------------+--------------+
+|  clk_IBUF_BUFG | j/pmod_sclk0_out                  | rst_IBUF                       |                1 |              1 |         1.00 |
+|  clk_IBUF_BUFG | j/pmod_cs_n1_out                  | rst_IBUF                       |                1 |              1 |         1.00 |
+|  clk_IBUF_BUFG | j/bit_cnt[3]_i_1_n_0              |                                |                1 |              4 |         4.00 |
+|  clk_IBUF_BUFG | p/ft/E[0]                         | p/px1                          |                1 |              4 |         4.00 |
+|  clk_IBUF_BUFG |                                   |                                |                2 |              5 |         2.50 |
+|  clk_IBUF_BUFG | j/FSM_onehot_state[4]_i_1_n_0     | rst_IBUF                       |                2 |              5 |         2.50 |
+|  clk_IBUF_BUFG | j/delay_cnt[5]_i_1_n_0            |                                |                2 |              6 |         3.00 |
+|  clk_IBUF_BUFG | p/ft/FSM_onehot_state_reg[0]_1[0] |                                |                4 |              6 |         1.50 |
+|  clk_IBUF_BUFG | p/ft/FSM_onehot_state_reg[0]_1[0] | p/ft/FSM_onehot_state_reg[0]_0 |                1 |              6 |         6.00 |
+|  clk_IBUF_BUFG |                                   | j/clk_div[6]_i_1_n_0           |                2 |              7 |         3.50 |
+|  clk_IBUF_BUFG | p/ft/FSM_onehot_state_reg[0]_1[0] | p/bx[15]_i_1_n_0               |                5 |              8 |         1.60 |
+|  clk_IBUF_BUFG | p/ft/FSM_onehot_state_reg[0]_1[0] | p/px[15]_i_1_n_0               |                2 |              9 |         4.50 |
+|  pxl_clk       |                                   | rst_IBUF                       |                3 |             10 |         3.33 |
+|  pxl_clk       | v_cnt                             | rst_IBUF                       |                6 |             10 |         1.67 |
+|  clk_IBUF_BUFG | j/read_timer[9]_i_1_n_0           |                                |                4 |             10 |         2.50 |
+|  clk_IBUF_BUFG | p/ft/E[0]                         | p/by[15]_i_1_n_0               |                4 |             12 |         3.00 |
+|  clk_IBUF_BUFG | j/shift_in[39]_i_1_n_0            |                                |                6 |             13 |         2.17 |
+|  clk_IBUF_BUFG | p/bvy[15]_i_1_n_0                 |                                |                4 |             16 |         4.00 |
+|  clk_IBUF_BUFG | p/ft/FSM_onehot_state_reg[0][0]   |                                |                5 |             16 |         3.20 |
+|  clk_IBUF_BUFG | j/joy_x[9]_i_1_n_0                | rst_IBUF                       |                6 |             18 |         3.00 |
+|  clk_IBUF_BUFG |                                   | rst_IBUF                       |               13 |             48 |         3.69 |
++----------------+-----------------------------------+--------------------------------+------------------+----------------+--------------+
 
 

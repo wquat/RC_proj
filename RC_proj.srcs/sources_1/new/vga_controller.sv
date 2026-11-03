@@ -26,12 +26,19 @@ module vga_controller (
     
     input btnl,
     input btnr,
+    
+    output logic pmod_cs_n,
+    output logic pmod_mosi,
+    input  logic pmod_miso,
+    output logic pmod_sclk,
         
     output [3:0] vga_r,
     output [3:0] vga_g,
     output [3:0] vga_b,
     output       vga_hs,
-    output       vga_vs
+    output       vga_vs,
+    
+    output [7:0] led
 );
 
     localparam PaddleWidth = 50, 
@@ -92,6 +99,29 @@ module vga_controller (
     logic frame_tick;
     assign frame_tick = (h_cnt == 0) && (v_cnt == V_TOTAL - 1);
 
+    logic [9:0] joy_x;
+    logic [9:0] joy_y;
+    logic btn_jstk;
+    logic btn_trigger;
+
+
+    joystick_controller j(
+        .clk(clk),
+        .rst(rst),
+        
+        .joy_x(joy_x),
+        .joy_y(joy_y),
+        
+        .btn_jstk(btn_jstk),
+        .btn_trigger(btn_trigger),
+        
+        .pmod_cs_n(pmod_cs_n),
+        .pmod_mosi(pmod_mosi),
+        .pmod_miso(pmod_miso),
+        .pmod_sclk(pmod_sclk)
+    );
+
+
     logic signed [15:0] bx, by, px, py;
     
     paddle #(
@@ -111,8 +141,11 @@ module vga_controller (
         .px_o(px),
         .py_o(py),
         .btnl(btnl),
-        .btnr(btnr)
+        .btnr(btnr),
+        .joy_x(joy_x)
     );
+
+    assign led = joy_x[9:2];
 
     // Check if the current electron beam position is inside the paddle
     logic draw_paddle;

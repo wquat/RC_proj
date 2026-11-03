@@ -35,6 +35,8 @@ module paddle #(
     input clk,
     input rst,
     
+    input [9:0] joy_x,
+    
     input btnl,
     input btnr,
     
@@ -70,7 +72,22 @@ module paddle #(
     
     st state = S_IDLE, next_state = S_IDLE;
     
-    logic jstk_ip = 0;
+    logic jstk_ip = (joy_x > 600 || joy_x < 420);
+    logic signed [15:0] paddle_speed;
+    
+    always_comb begin
+        if (joy_x > 700) 
+            paddle_speed = (MaxPaddleVelocity << FractionalBits);
+        else if (joy_x > 550) 
+            paddle_speed = (MaxPaddleVelocity << FractionalBits) >> 1;
+        else if (joy_x < 300) 
+            paddle_speed = -(MaxPaddleVelocity << FractionalBits); 
+        else if (joy_x < 470) 
+            paddle_speed = -((MaxPaddleVelocity << FractionalBits) >> 1);
+        else 
+            paddle_speed = 0;                                             
+    end
+    
     logic game_over = 0; 
     
     // get next state
@@ -82,14 +99,13 @@ module paddle #(
         else begin
             case (state)
                 S_IDLE: begin
-                    // TODO: change
-                    if (btnl == 1 || btnr == 1) next_state = S_PLAYING;
+                    if (jstk_ip) next_state = S_PLAYING;
                 end
                 S_PLAYING: begin
                     if (game_over) next_state = S_OVER;
                 end
                 S_OVER: begin
-                    if (btnl == 1 || btnr == 1) next_state = S_IDLE;
+                    if (jstk_ip) next_state = S_IDLE;
                 end
             endcase
         end
@@ -105,8 +121,8 @@ module paddle #(
         end
     end
     
-    logic signed [15:0] paddle_speed;
-    assign paddle_speed = (btnr - btnl) * MaxPaddleVelocity << FractionalBits;
+//    logic signed [15:0] paddle_speed;
+//    assign paddle_speed = (btnr - btnl) * MaxPaddleVelocity << FractionalBits;
     
     // update game logic
     always_ff @(posedge clk) begin

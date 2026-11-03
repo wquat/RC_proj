@@ -48,3 +48,25 @@ set_property PACKAGE_PIN AA19 [get_ports vga_hs]
 set_property PACKAGE_PIN Y19 [get_ports vga_vs]
 set_property IOSTANDARD LVCMOS33 [get_ports vga_hs]
 set_property IOSTANDARD LVCMOS33 [get_ports vga_vs]
+
+# Pmod JA (Bottom Row)
+set_property PACKAGE_PIN AB11 [get_ports pmod_cs_n]
+set_property PACKAGE_PIN AB10 [get_ports pmod_mosi]
+set_property PACKAGE_PIN AB9  [get_ports pmod_miso]
+set_property PACKAGE_PIN AA8  [get_ports pmod_sclk]
+
+set_property IOSTANDARD LVCMOS33 [get_ports pmod_cs_n]
+set_property IOSTANDARD LVCMOS33 [get_ports pmod_mosi]
+set_property IOSTANDARD LVCMOS33 [get_ports pmod_miso]
+set_property IOSTANDARD LVCMOS33 [get_ports pmod_sclk]
+
+# test
+set_property PACKAGE_PIN T22 [get_ports {led[0]}]
+set_property PACKAGE_PIN T21 [get_ports {led[1]}]
+set_property PACKAGE_PIN U22 [get_ports {led[2]}]
+set_property PACKAGE_PIN U21 [get_ports {led[3]}]
+set_property PACKAGE_PIN V22 [get_ports {led[4]}]
+set_property PACKAGE_PIN W22 [get_ports {led[5]}]
+set_property PACKAGE_PIN U19 [get_ports {led[6]}]
+set_property PACKAGE_PIN U14 [get_ports {led[7]}]
+set_property IOSTANDARD LVCMOS33 [get_ports {led[*]}]

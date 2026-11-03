@@ -89,6 +89,7 @@ OPTRACE "Creating in-memory project" END { }
 OPTRACE "Adding files" START { }
 read_verilog -library xil_defaultlib -sv {
   C:/Users/RC-P1.DESKTOP-LJC9QMB/RC_proj/RC_proj.srcs/sources_1/new/frametimer.sv
+  C:/Users/RC-P1.DESKTOP-LJC9QMB/RC_proj/RC_proj.srcs/sources_1/new/joystick_controller.sv
   C:/Users/RC-P1.DESKTOP-LJC9QMB/RC_proj/RC_proj.srcs/sources_1/new/paddle.sv
   C:/Users/RC-P1.DESKTOP-LJC9QMB/RC_proj/RC_proj.srcs/sources_1/new/rand_gen.sv
   C:/Users/RC-P1.DESKTOP-LJC9QMB/RC_proj/RC_proj.srcs/sources_1/new/vga_controller.sv

@@ -20,14 +20,14 @@
 //////////////////////////////////////////////////////////////////////////////////
 
  //                               frametime in milliseconds
-module frametimer #(parameter int FRAME_TIME = 16, parameter int CLK_FREQ = 100_000_000)( 
+module frametimer #(parameter int TARGET_FPS = 60, parameter int CLK_FREQ = 100_000_000)( 
     input clk,
     input rst,
     output logic frame_enable
-    );
+);
     
-    localparam int MAX_COUNT = (CLK_FREQ / 1000) * FRAME_TIME; 
-    logic [26:0] counter = 0;
+    localparam int MAX_COUNT = CLK_FREQ / TARGET_FPS; 
+    logic [$clog2(MAX_COUNT)-1:0] counter = 0;
         
     always_ff @(posedge clk) begin
         if (rst == 1) counter <= 0;

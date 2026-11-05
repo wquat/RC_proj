@@ -1,7 +1,7 @@
 Copyright 1986-2020 Xilinx, Inc. All Rights Reserved.
 -----------------------------------------------------------------------------------------------------------------------
 | Tool Version : Vivado v.2020.1 (win64) Build 2902540 Wed May 27 19:54:49 MDT 2020
-| Date         : Tue Nov  3 14:07:20 2026
+| Date         : Thu Nov  5 14:16:23 2026
 | Host         : DESKTOP-LJC9QMB running 64-bit major release  (build 9200)
 | Command      : report_utilization -file vga_controller_utilization_synth.rpt -pb vga_controller_utilization_synth.pb
 | Design       : vga_controller
@@ -30,13 +30,13 @@ Table of Contents
 +----------------------------+------+-------+-----------+-------+
 |          Site Type         | Used | Fixed | Available | Util% |
 +----------------------------+------+-------+-----------+-------+
-| Slice LUTs*                |  459 |     0 |     53200 |  0.86 |
-|   LUT as Logic             |  457 |     0 |     53200 |  0.86 |
-|   LUT as Memory            |    2 |     0 |     17400 |  0.01 |
+| Slice LUTs*                |  906 |     0 |     53200 |  1.70 |
+|   LUT as Logic             |  901 |     0 |     53200 |  1.69 |
+|   LUT as Memory            |    5 |     0 |     17400 |  0.03 |
 |     LUT as Distributed RAM |    0 |     0 |           |       |
-|     LUT as Shift Register  |    2 |     0 |           |       |
-| Slice Registers            |  205 |     0 |    106400 |  0.19 |
-|   Register as Flip Flop    |  205 |     0 |    106400 |  0.19 |
+|     LUT as Shift Register  |    5 |     0 |           |       |
+| Slice Registers            |  300 |     0 |    106400 |  0.28 |
+|   Register as Flip Flop    |  300 |     0 |    106400 |  0.28 |
 |   Register as Latch        |    0 |     0 |    106400 |  0.00 |
 | F7 Muxes                   |    0 |     0 |     26600 |  0.00 |
 | F8 Muxes                   |    0 |     0 |     13300 |  0.00 |
@@ -58,8 +58,8 @@ Table of Contents
 | 0     |          Yes |           - |            - |
 | 0     |          Yes |           - |          Set |
 | 0     |          Yes |           - |        Reset |
-| 17    |          Yes |         Set |            - |
-| 188   |          Yes |       Reset |            - |
+| 69    |          Yes |         Set |            - |
+| 231   |          Yes |       Reset |            - |
 +-------+--------------+-------------+--------------+
 
 
@@ -92,7 +92,7 @@ Table of Contents
 +-----------------------------+------+-------+-----------+-------+
 |          Site Type          | Used | Fixed | Available | Util% |
 +-----------------------------+------+-------+-----------+-------+
-| Bonded IOB                  |   28 |     0 |       200 | 14.00 |
+| Bonded IOB                  |   20 |     0 |       200 | 10.00 |
 | Bonded IPADs                |    0 |     0 |         2 |  0.00 |
 | Bonded IOPADs               |    0 |     0 |       130 |  0.00 |
 | PHY_CONTROL                 |    0 |     0 |         4 |  0.00 |
@@ -148,19 +148,19 @@ Table of Contents
 +----------+------+---------------------+
 | Ref Name | Used | Functional Category |
 +----------+------+---------------------+
-| LUT2     |  223 |                 LUT |
-| FDRE     |  188 |        Flop & Latch |
-| LUT4     |  159 |                 LUT |
-| CARRY4   |  101 |          CarryLogic |
-| LUT1     |   80 |                 LUT |
-| LUT3     |   56 |                 LUT |
-| LUT6     |   47 |                 LUT |
-| LUT5     |   46 |                 LUT |
-| OBUF     |   25 |                  IO |
-| FDSE     |   17 |        Flop & Latch |
+| LUT2     |  494 |                 LUT |
+| FDRE     |  231 |        Flop & Latch |
+| LUT1     |  207 |                 LUT |
+| CARRY4   |  193 |          CarryLogic |
+| LUT6     |  122 |                 LUT |
+| LUT4     |  107 |                 LUT |
+| LUT5     |  102 |                 LUT |
+| FDSE     |   69 |        Flop & Latch |
+| LUT3     |   52 |                 LUT |
+| OBUF     |   17 |                  IO |
+| SRL16E   |    4 |  Distributed Memory |
 | IBUF     |    3 |                  IO |
 | SRLC32E  |    1 |  Distributed Memory |
-| SRL16E   |    1 |  Distributed Memory |
 | BUFG     |    1 |               Clock |
 +----------+------+---------------------+
 

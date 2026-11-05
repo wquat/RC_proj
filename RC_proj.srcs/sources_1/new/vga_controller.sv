@@ -23,10 +23,7 @@
 module vga_controller (
     input clk,
     input rst,
-    
-    input btnl,
-    input btnr,
-    
+        
     output logic pmod_cs_n,
     output logic pmod_mosi,
     input  logic pmod_miso,
@@ -36,21 +33,20 @@ module vga_controller (
     output [3:0] vga_g,
     output [3:0] vga_b,
     output       vga_hs,
-    output       vga_vs,
-    
-    output [7:0] led
+    output       vga_vs
 );
 
     localparam PaddleWidth = 50, 
                PaddleHeight = 5, 
-               MaxBallVelocity = 5, 
+               MaxBallVelocity = 12, 
                BallSize = 5,
-               FractionalBits = 4,
+               FractionalBits = 10,
                Width = 640,
                Height = 480,
-               MaxPaddleVelocity = 5,
+               MaxPaddleVelocity = 7,
                InitialXVel = 24,
-               InitialYVel = 16;
+               InitialYVel = 16,
+               MaxW = 32;
 
     logic [1:0] clk_div = 0;
     always @(posedge clk) begin
@@ -122,7 +118,17 @@ module vga_controller (
     );
 
 
-    logic signed [15:0] bx, by, px, py;
+    logic signed [MaxW - 1:0] bx, by, px, py;
+    
+    // convert 25Mhz to 100Mhz
+    logic frame_tick_delay = 0;
+    always_ff @(posedge clk) begin
+        if (rst) frame_tick_delay <= 0;
+        else     frame_tick_delay <= frame_tick;
+    end
+
+    logic frame_enable;
+    assign frame_enable = frame_tick && ~frame_tick_delay;
     
     paddle #(
             .Width(Width), 
@@ -132,7 +138,8 @@ module vga_controller (
             .BallSize(BallSize), 
             .FractionalBits(FractionalBits), 
             .MaxBallVelocity(MaxBallVelocity),
-            .MaxPaddleVelocity(MaxPaddleVelocity)
+            .MaxPaddleVelocity(MaxPaddleVelocity),
+            .MaxW(MaxW)
      ) p(
         .clk(clk),
         .rst(rst),
@@ -140,12 +147,9 @@ module vga_controller (
         .by_o(by),
         .px_o(px),
         .py_o(py),
-        .btnl(btnl),
-        .btnr(btnr),
-        .joy_x(joy_x)
+        .joy_x(joy_x),
+        .frame_enable(frame_enable)
     );
-
-    assign led = joy_x[9:2];
 
     // Check if the current electron beam position is inside the paddle
     logic draw_paddle;

@@ -36,6 +36,7 @@ module vga_controller (
     output       vga_vs
 );
 
+    // game parameters
     localparam PaddleWidth = 50, 
                PaddleHeight = 5, 
                MaxBallVelocity = 12, 
@@ -56,13 +57,17 @@ module vga_controller (
     logic pxl_clk;
     assign pxl_clk = clk_div[1]; 
 
-    localparam H_DISPLAY = Width; localparam H_FRONT = 16;
-    localparam H_SYNC    = 96;  localparam H_BACK  = 48;
-    localparam H_TOTAL   = 800; 
+    localparam H_DISPLAY = Width,
+               H_FRONT   = 16, 
+               H_SYNC    = 96,
+               H_BACK    = 48,
+               H_TOTAL   = 800; 
 
-    localparam V_DISPLAY = Height; localparam V_FRONT = 10;
-    localparam V_SYNC    = 2;   localparam V_BACK  = 33;
-    localparam V_TOTAL   = 525; 
+    localparam V_DISPLAY = Height,
+               V_FRONT   = 10,
+               V_SYNC    = 2,
+               V_BACK    = 33,
+               V_TOTAL   = 525; 
 
     logic [9:0] h_cnt = 0;
     logic [9:0] v_cnt = 0;
@@ -83,11 +88,13 @@ module vga_controller (
 
     assign vga_hs = ~(h_cnt >= (H_DISPLAY + H_FRONT) && h_cnt < (H_DISPLAY + H_FRONT + H_SYNC));
     assign vga_vs = ~(v_cnt >= (V_DISPLAY + V_FRONT) && v_cnt < (V_DISPLAY + V_FRONT + V_SYNC));
+    
     logic video_on;
     assign video_on = (h_cnt < H_DISPLAY) && (v_cnt < V_DISPLAY);
     
     logic [9:0] pixel_x;
     assign pixel_x = h_cnt;
+    
     logic [9:0] pixel_y;
     assign pixel_y = v_cnt;
     
@@ -100,7 +107,7 @@ module vga_controller (
     logic btn_jstk;
     logic btn_trigger;
 
-
+    // read joystick data
     joystick_controller j(
         .clk(clk),
         .rst(rst),
@@ -130,6 +137,7 @@ module vga_controller (
     logic frame_enable;
     assign frame_enable = frame_tick && ~frame_tick_delay;
     
+    // update game
     paddle #(
             .Width(Width), 
             .Height(Height), 

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<GenRun Id="impl_1" LaunchPart="xc7z020clg484-1" LaunchTime="1793868349">
+<GenRun Id="impl_1" LaunchPart="xc7z020clg484-1" LaunchTime="1793868974">
   <File Type="BITSTR-BMM" Name="vga_controller_bd.bmm"/>
   <File Type="OPT-METHODOLOGY-DRC" Name="vga_controller_methodology_drc_opted.rpt"/>
   <File Type="INIT-TIMING" Name="vga_controller_timing_summary_init.rpt"/>

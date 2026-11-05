@@ -46,14 +46,14 @@ module paddle #(
     output signed [MaxW - 1:0] py_o
 );        
     logic signed [MaxW - 1:0] bx = (Width / 2)  << FractionalBits, 
-                        px = (Width / 2)  << FractionalBits;
+                              px = (Width / 2)  << FractionalBits;
     
     logic signed [MaxW - 1:0] by = (Height / 2) << FractionalBits;
     logic        [MaxW - 1:0] py = Height - PaddleHeight - 1;
     
     logic signed [MaxW - 1:0] rx, ry;
     
-    // generate pseudo random num bw 16 & 31
+    // generate pseudo random num bw 1 & 2 after FP
     rand_gen #(.FractionalBits(FractionalBits)) r(clk, rst, rx, ry);
     
     logic signed [MaxW - 1:0] bvx = rx, 
@@ -66,7 +66,6 @@ module paddle #(
     
     logic signed [MaxW - 1:0] bounce_bvx, bounce_bvy; 
     
-    // 2. Pre-calculate the fixed-point max speed so you don't do it over and over
     localparam signed [MaxW - 1:0] MAX_V_FP = MaxBallVelocity << FractionalBits;
 
     logic signed [MaxW - 1:0] temp_x;
@@ -77,12 +76,10 @@ module paddle #(
         temp_x = bvx + (bvx >>> 4);
         temp_y = bvy + (bvy >>> 4);
         
-        // Clamp X Velocity (comparing fixed-point to fixed-point)
         if (temp_x > MAX_V_FP)       bounce_bvx = MAX_V_FP;
         else if (temp_x < -MAX_V_FP) bounce_bvx = -MAX_V_FP;
         else                         bounce_bvx = temp_x;
         
-        // Clamp Y Velocity
         if (temp_y > MAX_V_FP)       bounce_bvy = MAX_V_FP;
         else if (temp_y < -MAX_V_FP) bounce_bvy = -MAX_V_FP;
         else                         bounce_bvy = temp_y;
@@ -93,8 +90,10 @@ module paddle #(
     st state = S_IDLE, next_state = S_IDLE;
     
     logic jstk_ip = (joy_x > 600 || joy_x < 420);
+    
     logic signed [MaxW - 1:0] paddle_speed;
     
+    // 3 speed states
     always_comb begin
         if (joy_x > 700) 
             paddle_speed = (MaxPaddleVelocity << FractionalBits);

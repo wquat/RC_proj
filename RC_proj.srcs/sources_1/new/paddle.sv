@@ -40,6 +40,11 @@ module paddle #(
     
     input logic frame_enable,
     
+    input logic jstk_btn,
+    
+    output logic [3:0] score_ones,
+    output logic [3:0] score_tens,
+    
     output signed [MaxW - 1:0] bx_o,
     output signed [MaxW - 1:0] by_o,
     output signed [MaxW - 1:0] px_o,
@@ -72,7 +77,7 @@ module paddle #(
     logic signed [MaxW - 1:0] temp_y;
 
     always_comb begin
-        // + 3.12%
+        // + 6.25%
         temp_x = bvx + (bvx >>> 4);
         temp_y = bvy + (bvy >>> 4);
         
@@ -122,13 +127,13 @@ module paddle #(
         else begin
             case (state)
                 S_IDLE: begin
-                    if (jstk_ip) next_state = S_PLAYING;
+                    if (jstk_btn) next_state = S_PLAYING;
                 end
                 S_PLAYING: begin
                     if (game_over) next_state = S_OVER;
                 end
                 S_OVER: begin
-                    if (jstk_ip) next_state = S_IDLE;
+                    if (jstk_btn) next_state = S_IDLE;
                 end
             endcase
         end
@@ -153,6 +158,8 @@ module paddle #(
             bvx <= rx; 
             bvy <= ry;
             game_over <= 0;
+            score_tens <= 0;
+            score_ones <= 0;
         end
         else if (state == S_PLAYING && frame_enable) begin
             game_over <= 0;
@@ -188,12 +195,20 @@ module paddle #(
             end 
             if (by + bvy > ((Height - PaddleHeight - BallSize) << FractionalBits)) begin
                 if (
-                    bx + bvx >= px - ((PaddleWidth / 2) << FractionalBits) && 
+                    bx + bvx >= px - ((PaddleWidth / 2 + BallSize) << FractionalBits) && 
                     bx + bvx <= px + ((PaddleWidth / 2) << FractionalBits)
                  ) begin
                     by <= ((Height - PaddleHeight - BallSize) << FractionalBits);
                     bvy <= -bounce_bvy;
-                    bvx <= bounce_bvx; 
+                    bvx <= bounce_bvx;
+                    if (score_ones == 9) begin
+                        score_ones <= 0;
+                        if (score_tens == 9) score_tens <= 0;
+                        else                 score_tens <= score_tens + 1;
+                    end 
+                    else begin
+                        score_ones <= score_ones + 1;
+                    end
                 end
                 // ball fell below the paddle
                 else begin

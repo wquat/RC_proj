@@ -137,6 +137,8 @@ module vga_controller (
     logic frame_enable;
     assign frame_enable = frame_tick && ~frame_tick_delay;
     
+    logic [3:0] score_ones, score_tens;
+        
     // update game
     paddle #(
             .Width(Width), 
@@ -156,7 +158,10 @@ module vga_controller (
         .px_o(px),
         .py_o(py),
         .joy_x(joy_x),
-        .frame_enable(frame_enable)
+        .frame_enable(frame_enable),
+        .score_tens(score_tens),
+        .score_ones(score_ones),
+        .jstk_btn(btn_jstk)
     );
 
     // Check if the current electron beam position is inside the paddle
@@ -169,9 +174,69 @@ module vga_controller (
     assign draw_ball = (pixel_x >= bx) && (pixel_x < bx + BallSize) &&
                      (pixel_y >= by) && (pixel_y < by + BallSize);
 
+
+    // Define the bounding boxes and sizes for the two digits
+    localparam TENS_X_START = 299;
+    localparam ONES_X_START = 325; 
+    localparam DIGIT_WIDTH  = 16;
+    localparam DIGIT_HEIGHT = 24;
+    localparam DIGIT_Y      = 15;  
+
+    logic in_tens_box;
+    assign in_tens_box = (pixel_x >= TENS_X_START && pixel_x < TENS_X_START + DIGIT_WIDTH) &&
+                         (pixel_y >= DIGIT_Y      && pixel_y < DIGIT_Y + DIGIT_HEIGHT);
+                         
+    logic in_ones_box;
+    assign in_ones_box = (pixel_x >= ONES_X_START && pixel_x < ONES_X_START + DIGIT_WIDTH) &&
+                         (pixel_y >= DIGIT_Y      && pixel_y < DIGIT_Y + DIGIT_HEIGHT);
+    // Multiplexer: Which digit and X-coordinate should the renderer use right now?
+    logic [3:0] current_digit;
+    logic [9:0] current_x_start; // Assuming pixel_x is 10 bits
+
+    always_comb begin
+        if (in_tens_box) begin
+            current_digit = score_tens;
+            current_x_start = TENS_X_START;
+        end
+        else if (in_ones_box) begin
+            current_digit = score_ones;
+            current_x_start = ONES_X_START;
+        end
+        else begin
+            // Default values when the electron beam is outside the score area
+            current_digit = 0;
+            current_x_start = 0;
+        end
+    end
+
+    // Instantiate the digit renderer ONCE to save FPGA logic
+    logic draw_score_pixel;
+    
+    in_digit #(
+        .Width(640), 
+        .Height(480), 
+        .BitWidth(16), 
+        .StrokeThickness(4) // You can adjust thickness here
+    ) score_renderer (
+        .digit(current_digit),
+        .screen_left(current_x_start),
+        .screen_top(DIGIT_Y),
+        .dig_width(DIGIT_WIDTH),
+        .dig_height(DIGIT_HEIGHT),
+        .cur_left(pixel_x),
+        .cur_top(pixel_y),
+        .in_digit(draw_score_pixel)
+    );
+
+    // Safety mask: Only allow the score to be drawn if we are actually inside one of the boxes.
+    // (Otherwise, it will draw a '0' at the very top-left corner of the screen!)
+    logic draw_score;
+    assign draw_score = draw_score_pixel && (in_tens_box || in_ones_box);
+
+
     // The pixel is ON if it is inside the active display area AND (it's the paddle OR the ball)
     logic pixel_on;
-    assign pixel_on = video_on && (draw_paddle || draw_ball);
+    assign pixel_on = video_on && (draw_paddle || draw_ball || draw_score);
 
     // Monochrome color mapping: White if pixel_on, Black if not.
     assign vga_r = pixel_on ? 4'hF : 4'h0;

@@ -14,12 +14,16 @@ jobs:
       image: regymm/openxc7:latest
     defaults:
       run:
-        shell: bash          # bash + pipefail, so a failing tool inside "| tee" fails the step
+        shell: bash          # bash + pipefail
     env:
       DEVICE: xc7z020clg484-1
       TOP: vga_controller
-      TARGET_FREQS: "100 200"        # 100 = official run (PASS/FAIL), 200 = push-the-placer run
+      # Synthesis variants, in order of preference (closest to Vivado first):
+      #   abc9 = -flatten -abc9 | flat = -flatten | orig = no extra flags (your original flow)
+      MODES: "abc9 flat orig"
+      TARGET_FREQS: "100 200"        # 100 = official run, 200 = push-the-placer run
       SEEDS: "1 2 3 4 5 6 7 8"
+      STOP_AT_FIRST_WORKING: "true"  # only sweep the best synthesis mode that works
 
     steps:
       - name: Checkout repository
@@ -33,25 +37,34 @@ jobs:
           sed -i 's/bvy = ry;/bvy = 0;/' /tmp/rtl/paddle.sv
           sed -i 's/logic jstk_ip = .*/logic jstk_ip = 0;/' /tmp/rtl/paddle.sv
 
-      # Vivado flattens the design and uses a timing-aware mapper. The closest
-      # Yosys equivalent is -flatten + -abc9. If abc9 fails on this build, fall back.
-      - name: Synthesize with Yosys (flatten + abc9)
+      # Synthesize every variant. A variant that fails is dropped, not fatal.
+      - name: Synthesize with Yosys (abc9 / flatten / original)
         run: |
+          mkdir -p netlist
           SRCS="/tmp/rtl/digit_gen.sv /tmp/rtl/in_digit.sv /tmp/rtl/joystick_controller.sv /tmp/rtl/paddle.sv /tmp/rtl/rand_gen.sv /tmp/rtl/vga_controller.sv"
-          if yosys -p "read_verilog -sv $SRCS; synth_xilinx -flatten -abc9 -family xc7 -top $TOP; write_json $TOP.json; stat" 2>&1 | tee synth.log; then
-            echo "flatten + abc9" > synth_mode.txt
-          else
-            echo "::warning::abc9 failed, falling back to plain abc"
-            yosys -p "read_verilog -sv $SRCS; synth_xilinx -flatten -family xc7 -top $TOP; write_json $TOP.json; stat" 2>&1 | tee synth.log
-            echo "flatten + abc (abc9 unavailable)" > synth_mode.txt
-          fi
 
-      # Compare the Yosys netlist with the Vivado routed power report utilization.
-      # The closer these counts are, the more defensible the timing comparison is.
-      - name: Compare Yosys netlist with Vivado utilization
+          run_synth() {   # usage: run_synth <name> [extra synth_xilinx flags]
+            local name=$1; shift
+            if yosys -p "read_verilog -sv $SRCS; synth_xilinx $* -family xc7 -top $TOP; write_json netlist/$name.json; stat" \
+                > netlist/synth_$name.log 2>&1; then
+              echo "synthesis '$name': ok"
+            else
+              echo "::warning::synthesis '$name' failed"
+              tail -n 20 netlist/synth_$name.log
+              rm -f netlist/$name.json
+            fi
+          }
+
+          run_synth abc9 -flatten -abc9
+          run_synth flat -flatten
+          run_synth orig
+
+          ls netlist/*.json > /dev/null 2>&1 || { echo "::error::all synthesis variants failed"; exit 1; }
+
+      - name: Compare Yosys netlists with Vivado utilization
         run: |
           python3 - << 'EOF'
-          import json, os, re
+          import json, os, re, sys
           from collections import Counter
 
           def out(s=""):
@@ -62,38 +75,43 @@ jobs:
                       f.write(s + "\n")
 
           top = os.environ["TOP"]
-          d = json.load(open(top + ".json"))
-          mods = d["modules"]
-          mod = mods.get(top) or next(iter(mods.values()))
-          c = Counter(cell["type"] for cell in mod["cells"].values())
+          modes = [m for m in os.environ["MODES"].split() if os.path.exists(f"netlist/{m}.json")]
+          if not modes:
+              out("No netlists produced.")
+              sys.exit(1)
 
-          lut   = sum(n for t, n in c.items() if re.fullmatch(r"LUT[1-6]", t))
-          srl   = sum(n for t, n in c.items() if t.startswith("SRL"))
-          ff    = sum(n for t, n in c.items() if re.fullmatch(r"FD[A-Z]E", t))
-          carry = c["CARRY4"]
-          bufg  = c["BUFG"]
-          mux   = c["MUXF7"] + c["MUXF8"]
+          def counts(path):
+              d = json.load(open(path))
+              mods = d["modules"]
+              mod = mods.get(top) or next(iter(mods.values()))
+              c = Counter(cell["type"] for cell in mod["cells"].values())
+              return {
+                  "LUT as logic":     sum(n for t, n in c.items() if re.fullmatch(r"LUT[1-6]", t)),
+                  "LUT as shift reg": sum(n for t, n in c.items() if t.startswith("SRL")),
+                  "Registers":        sum(n for t, n in c.items() if re.fullmatch(r"FD[A-Z]E", t)),
+                  "CARRY4":           c["CARRY4"],
+                  "BUFG":             c["BUFG"],
+                  "MUXF7 + MUXF8":    c["MUXF7"] + c["MUXF8"],
+              }
 
           # Reference numbers from the Vivado 2020.1 routed power report
-          rows = [
-              ("LUT as logic",       lut,   983),
-              ("LUT as shift reg",   srl,   5),
-              ("Registers",          ff,    309),
-              ("CARRY4",             carry, 221),
-              ("BUFG",               bufg,  1),
-          ]
+          ref = {"LUT as logic": 983, "LUT as shift reg": 5, "Registers": 309, "CARRY4": 221, "BUFG": 1}
+          data = {m: counts(f"netlist/{m}.json") for m in modes}
 
           out("## Netlist comparison: Yosys vs Vivado")
-          out(f"Yosys mode: **{open('synth_mode.txt').read().strip()}**")
           out("")
-          out("| Resource | Yosys | Vivado | Yosys / Vivado |")
-          out("|---|---:|---:|---:|")
-          for name, y, v in rows:
-              ratio = f"{y / v:.2f}x" if v else "-"
-              out(f"| {name} | {y} | {v} | {ratio} |")
-          out(f"| MUXF7 + MUXF8 | {mux} | - | - |")
+          out("abc9 = `-flatten -abc9`, flat = `-flatten`, orig = no extra flags (original workflow).")
           out("")
-          print("All Yosys cell types:", dict(c))
+          out("| Resource | Vivado | " + " | ".join(modes) + " |")
+          out("|---|---:|" + "---:|" * len(modes))
+          for name in data[modes[0]]:
+              v = ref.get(name)
+              cells = []
+              for m in modes:
+                  y = data[m][name]
+                  cells.append(f"{y} ({y / v:.2f}x)" if v else str(y))
+              out(f"| {name} | {v if v is not None else '-'} | " + " | ".join(cells) + " |")
+          out("")
           EOF
 
       - name: Build xc7z020clg484-1 chip database
@@ -104,8 +122,7 @@ jobs:
           bbasm -l $DEVICE.bba $DEVICE.bin
 
       # No create_clock here on purpose: nextpnr-xilinx did not attach it to the
-      # clock net it analyzes (the net is named $iopadmap$clk). The target
-      # frequency is set with --freq in the next step instead.
+      # clock net it analyzes (named $iopadmap$clk). --freq sets the target instead.
       - name: Combine physical pin map with expanded LVCMOS33
         run: |
           grep -v '\[\*\]' RC_proj.srcs/constrs_1/new/port_mapping.xdc > combined.xdc
@@ -115,24 +132,100 @@ jobs:
             done
           done
 
-      # Placement is randomized, so one run is one sample. Sweep seeds at each target.
-      #   100 MHz: official run, PASS/FAIL here is the analog of Vivado WNS >= 0
-      #   200 MHz: unreachable target, so the placer/router optimize for speed
-      - name: Place and route (target x seed sweep)
+      # Flow:
+      #  1. Probe every synthesis variant once (100 MHz, seed 1).
+      #  2. Sweep seeds/targets for the best variant whose probe succeeded.
+      #  3. If every probe crashed, retry without --freq as a control, to see
+      #     whether --freq or the synthesis flags are the problem.
+      # Errors are printed with context, because nextpnr prints its ERROR line
+      # out of order relative to the Info lines, so tailing the log misses it.
+      - name: Place and route (probe, then target x seed sweep)
         run: |
           mkdir -p pnr
-          for f in $TARGET_FREQS; do
-            for s in $SEEDS; do
-              echo "=== target ${f} MHz, seed ${s} ==="
-              if ! nextpnr-xilinx --freq "$f" --seed "$s" \
-                  --chipdb $DEVICE.bin --xdc combined.xdc \
-                  --json $TOP.json --fasm pnr/${TOP}_f${f}_s${s}.fasm \
-                  > pnr/f${f}_s${s}.log 2>&1; then
-                echo "::warning::nextpnr-xilinx failed for target ${f} MHz seed ${s}"
-                tail -n 5 pnr/f${f}_s${s}.log
+
+          run_pnr() {   # usage: run_pnr <mode> <target MHz | default> <seed>
+            local mode=$1 t=$2 s=$3
+            local freq=()
+            if [ "$t" != "default" ]; then freq=(--freq "$t"); fi
+            nextpnr-xilinx "${freq[@]}" --seed "$s" \
+              --chipdb $DEVICE.bin --xdc combined.xdc \
+              --json netlist/$mode.json --fasm pnr/${mode}_f${t}_s${s}.fasm \
+              > pnr/${mode}_f${t}_s${s}.log 2>&1
+          }
+
+          show_error() {   # usage: show_error <logfile>
+            echo "----- ERROR lines (with context) from $1 -----"
+            grep -n -i -B3 -A3 "error" "$1" | head -60 || true
+            echo "----- Max frequency lines in $1 -----"
+            grep "Max frequency" "$1" || echo "(none)"
+            echo "----- last 10 lines -----"
+            tail -n 10 "$1"
+          }
+
+          sweep() {   # usage: sweep <mode> <target>...
+            local mode=$1; shift
+            local f s
+            for f in "$@"; do
+              for s in $SEEDS; do
+                if [ -f pnr/${mode}_f${f}_s${s}.log ]; then continue; fi   # probe/control already ran
+                echo "=== $mode: target ${f} MHz, seed ${s} ==="
+                if ! run_pnr $mode $f $s; then
+                  echo "::warning::$mode target ${f} seed ${s} crashed"
+                fi
+              done
+            done
+          }
+
+          # 1. probe
+          probe_ok=""; probe_usable=""
+          for mode in $MODES; do
+            if [ ! -f netlist/$mode.json ]; then echo "skip $mode (no netlist)"; continue; fi
+            echo "##### probe: $mode, 100 MHz, seed 1"
+            if run_pnr $mode 100 1; then
+              probe_ok="$probe_ok $mode"
+            else
+              echo "::warning::probe for '$mode' crashed"
+              show_error pnr/${mode}_f100_s1.log
+              if grep -q "Max frequency for clock" pnr/${mode}_f100_s1.log; then
+                probe_usable="$probe_usable $mode"
+              fi
+            fi
+          done
+
+          # 2. choose which variants to sweep
+          chosen="$probe_ok"
+          if [ -z "$chosen" ] && [ -n "$probe_usable" ]; then
+            echo "::warning::every probe crashed, but some logs still contain timing reports; sweeping those (flagged in the summary)"
+            chosen="$probe_usable"
+          fi
+          if [ "$STOP_AT_FIRST_WORKING" = "true" ]; then chosen=$(echo $chosen | awk '{print $1}'); fi
+
+          for mode in $chosen; do
+            echo "##### sweep: $mode"
+            sweep $mode $TARGET_FREQS
+          done
+
+          # 3. control run if nothing worked with --freq
+          if [ -z "$probe_ok" ]; then
+            echo "##### control: no --freq (nextpnr default target), seed 1"
+            ctl_ok=""
+            for mode in $MODES; do
+              if [ ! -f netlist/$mode.json ]; then continue; fi
+              if run_pnr $mode default 1; then
+                echo "control OK for '$mode': the crash is caused by --freq, not by synthesis"
+                ctl_ok="$ctl_ok $mode"
+              else
+                echo "::warning::control for '$mode' also crashed (synthesis variant or constraints)"
+                show_error pnr/${mode}_fdefault_s1.log
               fi
             done
-          done
+            if [ -n "$ctl_ok" ] && [ -z "$chosen" ]; then
+              first=$(echo $ctl_ok | awk '{print $1}')
+              sweep $first default
+            fi
+          fi
+
+          ls pnr/*.log
 
       - name: Timing summary
         run: |
@@ -148,68 +241,84 @@ jobs:
 
           FMAX  = re.compile(r"Max frequency for clock '([^']+)':\s*([\d.]+)\s*MHz")
           LOGIC = re.compile(r"([\d.]+) ns logic, ([\d.]+) ns routing")
+          NAME  = re.compile(r"pnr/([a-z0-9]+)_f(\d+|default)_s(\d+)\.log")
+          ERRS  = re.compile(r"(\d+) warnings?, (\d+) errors?")
 
-          targets = [int(t) for t in os.environ["TARGET_FREQS"].split()]
-          runs = []
-          for t in targets:
-              logs = glob.glob(f"pnr/f{t}_s*.log")
-              logs.sort(key=lambda p: int(re.search(r"_s(\d+)\.log", p).group(1)))
-              for log in logs:
-                  seed = int(re.search(r"_s(\d+)\.log", log).group(1))
-                  text = open(log, errors="ignore").read()
-                  # Main clock only: Vivado does not treat clk_div as a clock.
-                  # The LAST match is the post-route value (earlier ones are post-place).
-                  hits = [(n, float(v)) for n, v in FMAX.findall(text) if "clk_div" not in n]
-                  if not hits:
-                      continue
-                  clk, fmax = hits[-1]
-                  hdr = f"Critical path report for clock '{clk}'"
-                  pos = text.rfind(hdr)
-                  m = LOGIC.search(text, pos) if pos >= 0 else None
-                  runs.append(dict(
-                      target=t, seed=seed, clk=clk, fmax=fmax, period=1000.0 / fmax,
-                      logic=float(m.group(1)) if m else None,
-                      route=float(m.group(2)) if m else None,
-                      log=log,
-                  ))
+          modes = os.environ["MODES"].split()
+          runs, no_data = [], []
+          for log in glob.glob("pnr/*.log"):
+              m = NAME.fullmatch(log)
+              if not m:
+                  continue
+              mode, t, seed = m.group(1), m.group(2), int(m.group(3))
+              text = open(log, errors="ignore").read()
+              # Main clock only: Vivado does not treat clk_div as a clock.
+              # The LAST report is the latest stage (a log with 2 reports has post-place then post-route).
+              hits = [(n, float(v)) for n, v in FMAX.findall(text) if "clk_div" not in n]
+              if not hits:
+                  no_data.append(log)
+                  continue
+              clk, fmax = hits[-1]
+              errs = ERRS.findall(text)
+              crashed = bool(errs) and int(errs[-1][1]) > 0
+              pos = text.rfind(f"Critical path report for clock '{clk}'")
+              lm = LOGIC.search(text, pos) if pos >= 0 else None
+              runs.append(dict(
+                  mode=mode, target=t, seed=seed, clk=clk, fmax=fmax, period=1000.0 / fmax,
+                  reports=len(hits), crashed=crashed, log=log,
+                  logic=float(lm.group(1)) if lm else None,
+                  route=float(lm.group(2)) if lm else None,
+              ))
 
           if not runs:
-              out("No usable nextpnr results found. Check the logs in pnr/.")
+              out("No usable nextpnr results found.")
+              out("Look at the 'ERROR lines' blocks in the Place and route step, and at the uploaded logs.")
+              if no_data:
+                  out("Logs with no main-clock Fmax line: " + ", ".join(sorted(no_data)))
               sys.exit(1)
 
-          out("## nextpnr-xilinx post-route timing (main clock `clk` only)")
+          def tkey(t):
+              return (1, 0) if t == "default" else (0, int(t))
+
+          out("## nextpnr-xilinx timing (main clock `clk` only)")
           out("")
-          for t in targets:
-              rs = [r for r in runs if r["target"] == t]
-              if not rs:
-                  continue
-              budget = 1000.0 / t
-              out(f"### Target {t} MHz ({budget:.3f} ns)")
+          out("Slack is measured against a 100 MHz / 10 ns period for every run, to match a Vivado WNS at 10 ns. "
+              "'Reports' is how many Fmax reports the log contains for the main clock (2 = post-place and post-route). "
+              "A crashed run died in nextpnr's post-routing legalisation after printing its timing, so its "
+              "numbers are usable for timing but it produced no valid bitstream.")
+          out("")
+          keys = sorted({(r["mode"], r["target"]) for r in runs},
+                        key=lambda k: (modes.index(k[0]) if k[0] in modes else 99, tkey(k[1])))
+          for mode, t in keys:
+              rs = sorted([r for r in runs if r["mode"] == mode and r["target"] == t], key=lambda r: r["seed"])
+              label = "default target (12 MHz)" if t == "default" else f"target {t} MHz"
+              out(f"### Synthesis `{mode}`, {label}")
               out("")
-              out("| Seed | Fmax (MHz) | Min period (ns) | Slack vs target (ns) | Logic / routing (ns) | Target met |")
-              out("|---:|---:|---:|---:|---:|:---:|")
+              out("| Seed | Fmax (MHz) | Min period (ns) | Slack @ 10 ns | Logic / routing (ns) | Reports | Status |")
+              out("|---:|---:|---:|---:|---:|---:|:---|")
               for r in rs:
                   lr = f"{r['logic']:.2f} / {r['route']:.2f}" if r["logic"] is not None else "-"
-                  met = "yes" if r["fmax"] >= t else "no"
-                  out(f"| {r['seed']} | {r['fmax']:.2f} | {r['period']:.3f} | {budget - r['period']:+.3f} | {lr} | {met} |")
+                  status = "crashed in legalisation" if r["crashed"] else "ok"
+                  out(f"| {r['seed']} | {r['fmax']:.2f} | {r['period']:.3f} | {10.0 - r['period']:+.3f} | {lr} | {r['reports']} | {status} |")
               fm = [r["fmax"] for r in rs]
               out("")
               out(f"Best {max(fm):.2f} MHz, median {statistics.median(fm):.2f} MHz, "
-                  f"worst {min(fm):.2f} MHz across {len(fm)} seeds.")
+                  f"worst {min(fm):.2f} MHz across {len(fm)} run(s).")
               out("")
 
           best = max(runs, key=lambda r: r["fmax"])
           out("## Headline result")
           out("")
           out(f"- Best Fmax: **{best['fmax']:.2f} MHz** (min period **{best['period']:.3f} ns**), "
-              f"from target {best['target']} MHz, seed {best['seed']}")
+              f"synthesis `{best['mode']}`, target {best['target']}, seed {best['seed']}")
           out(f"- Approx. slack at 100 MHz (10 ns): {10.0 - best['period']:+.3f} ns "
-              f"(from nextpnr's delay model, not Vivado's)")
-          out("- This is the best of "
-              f"{len(runs)} runs; quote the range above alongside it.")
+              f"(nextpnr's delay model, not Vivado's)")
+          out(f"- Best of {len(runs)} runs; quote the range above alongside it.")
+          if best["crashed"]:
+              out("- **This run crashed in legalisation**; its timing report was printed before the crash.")
           out("")
 
-          # Critical path of the best run (post-route report for the main clock)
+          # Critical path of the best run
           lines = open(best["log"], errors="ignore").read().splitlines()
           hdr = f"Critical path report for clock '{best['clk']}'"
           idx = max((i for i, l in enumerate(lines) if hdr in l), default=None)
@@ -234,7 +343,6 @@ jobs:
         with:
           name: timing-logs
           path: |
-            synth.log
-            synth_mode.txt
-            combined.xdc
+            netlist/synth_*.log
             pnr/*.log
+            combined.xdc

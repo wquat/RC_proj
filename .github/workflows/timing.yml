@@ -21,18 +21,9 @@ jobs:
         run: |
           mkdir -p /tmp/rtl
           cp RC_proj.srcs/sources_1/new/*.sv /tmp/rtl/
-          python3 - << 'EOF'
-          import re
-          path = "/tmp/rtl/paddle.sv"
-          lines = open(path).read().splitlines()
-          out = []
-          for idx, line in enumerate(lines, start=1):
-              # Sanitize non-constant declaration or initial-block assignments before line 79
-              if idx < 79 and not re.search(r"\b(localparam|parameter|assign)\b", line):
-                  line = re.sub(r"(?<![=!<>])=\s*(?!0\b)[^;,]+", "= 0", line)
-              out.append(line)
-          open(path, "w").write("\n".join(out) + "\n")
-          EOF
+          sed -i 's/bvx = rx,/bvx = 0,/' /tmp/rtl/paddle.sv
+          sed -i 's/bvy = ry;/bvy = 0;/' /tmp/rtl/paddle.sv
+          sed -i 's/logic jstk_ip = .*/logic jstk_ip = 0;/' /tmp/rtl/paddle.sv
 
       - name: Synthesize active RTL sources with Yosys
         run: |
@@ -56,10 +47,15 @@ jobs:
             --bba xc7z020clg484-1.bba
           bbasm -l xc7z020clg484-1.bba xc7z020clg484-1.bin
 
-      - name: Combine physical pin map with 100 MHz clock constraint
+      - name: Combine physical pin map with expanded LVCMOS33 and 100 MHz clock
         run: |
-          grep -E 'PACKAGE_PIN|IOSTANDARD' RC_proj.srcs/constrs_1/new/port_mapping.xdc > combined.xdc || true
-          echo "create_clock -period 10.000 -name clk [get_ports clk]" >> combined.xdc
+           grep -v '\[\*\]' RC_proj.srcs/constrs_1/new/port_mapping.xdc > combined.xdc
+           for bus in vga_r vga_g vga_b; do
+             for bit in 0 1 2 3; do
+               echo "set_property IOSTANDARD LVCMOS33 [get_ports {${bus}[${bit}]}]" >> combined.xdc
+             done
+           done
+           echo "create_clock -period 10.000 -name clk [get_ports clk]" >> combined.xdc
 
       - name: Place, route, and report timing delay
         run: |

@@ -49,13 +49,13 @@ jobs:
 
       - name: Combine physical pin map with expanded LVCMOS33 and 100 MHz clock
         run: |
-           grep -v '\[\*\]' RC_proj.srcs/constrs_1/new/port_mapping.xdc > combined.xdc
-           for bus in vga_r vga_g vga_b; do
-             for bit in 0 1 2 3; do
-               echo "set_property IOSTANDARD LVCMOS33 [get_ports {${bus}[${bit}]}]" >> combined.xdc
-             done
-           done
-           echo "create_clock -period 10.000 -name clk [get_ports clk]" >> combined.xdc
+          grep -v '\[\*\]' RC_proj.srcs/constrs_1/new/port_mapping.xdc > combined.xdc
+          for bus in vga_r vga_g vga_b; do
+            for bit in 0 1 2 3; do
+              echo "set_property IOSTANDARD LVCMOS33 [get_ports {${bus}[${bit}]}]" >> combined.xdc
+            done
+          done
+          echo "create_clock -period 10.000 -name clk [get_ports clk]" >> combined.xdc
 
       - name: Place, route, and report timing delay
         run: |

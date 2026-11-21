@@ -17,16 +17,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Prepare temporary RTL copy (match Vivado init behavior)
+        run: |
+          mkdir -p /tmp/rtl
+          cp RC_proj.srcs/sources_1/new/*.sv /tmp/rtl/
+          python3 - << 'EOF'
+          import re
+          path = "/tmp/rtl/paddle.sv"
+          text = open(path).read()
+          # Replace non-constant variable declaration initializers (e.g. = rx, = ry) with = 0
+          lines = []
+          for line in text.splitlines():
+              if re.match(r"^\s*(logic|reg|bit|int|integer)\b", line):
+                  line = re.sub(r"=\s*[a-zA-Z_]\w*", "= 0", line)
+              lines.append(line)
+          open(path, "w").write("\n".join(lines) + "\n")
+          EOF
+
       - name: Synthesize active RTL sources with Yosys
         run: |
           yosys -p "
             read_verilog -sv \
-              RC_proj.srcs/sources_1/new/digit_gen.sv \
-              RC_proj.srcs/sources_1/new/in_digit.sv \
-              RC_proj.srcs/sources_1/new/joystick_controller.sv \
-              RC_proj.srcs/sources_1/new/paddle.sv \
-              RC_proj.srcs/sources_1/new/rand_gen.sv \
-              RC_proj.srcs/sources_1/new/vga_controller.sv;
+              /tmp/rtl/digit_gen.sv \
+              /tmp/rtl/in_digit.sv \
+              /tmp/rtl/joystick_controller.sv \
+              /tmp/rtl/paddle.sv \
+              /tmp/rtl/rand_gen.sv \
+              /tmp/rtl/vga_controller.sv;
             synth_xilinx -family xc7 -top vga_controller;
             write_json vga_controller.json;
             stat
@@ -54,10 +71,10 @@ jobs:
 
           echo "=== EXTRACTED TIMING SUMMARY ==="
           grep -E "Max frequency for clock|Critical path" timing.log || true
-          python3 -c '
+          python3 - << 'EOF'
           import re
           log = open("timing.log").read()
-          for clk, fmax in re.findall(r"Max frequency for clock \x27([^\x27]+)\x27:\s*([\d.]+)\s*MHz", log):
+          for clk, fmax in re.findall(r"Max frequency for clock '([^']+)':\s*([\d.]+)\s*MHz", log):
               delay = 1000.0 / float(fmax)
               print(f"Clock: {clk} | Fmax: {fmax} MHz | Critical Path Delay: {delay:.3f} ns")
-          '
+          EOF

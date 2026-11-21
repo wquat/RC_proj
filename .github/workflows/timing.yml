@@ -12,6 +12,14 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: regymm/openxc7:latest
+    defaults:
+      run:
+        shell: bash          # bash + pipefail, so a failing tool inside "| tee" fails the step
+    env:
+      DEVICE: xc7z020clg484-1
+      TOP: vga_controller
+      TARGET_FREQS: "100 200"        # 100 = official run (PASS/FAIL), 200 = push-the-placer run
+      SEEDS: "1 2 3 4 5 6 7 8"
 
     steps:
       - name: Checkout repository
@@ -25,29 +33,80 @@ jobs:
           sed -i 's/bvy = ry;/bvy = 0;/' /tmp/rtl/paddle.sv
           sed -i 's/logic jstk_ip = .*/logic jstk_ip = 0;/' /tmp/rtl/paddle.sv
 
-      - name: Synthesize active RTL sources with Yosys
+      # Vivado flattens the design and uses a timing-aware mapper. The closest
+      # Yosys equivalent is -flatten + -abc9. If abc9 fails on this build, fall back.
+      - name: Synthesize with Yosys (flatten + abc9)
         run: |
-          yosys -p "
-            read_verilog -sv \
-              /tmp/rtl/digit_gen.sv \
-              /tmp/rtl/in_digit.sv \
-              /tmp/rtl/joystick_controller.sv \
-              /tmp/rtl/paddle.sv \
-              /tmp/rtl/rand_gen.sv \
-              /tmp/rtl/vga_controller.sv;
-            synth_xilinx -family xc7 -top vga_controller;
-            write_json vga_controller.json;
-            stat
-          "
+          SRCS="/tmp/rtl/digit_gen.sv /tmp/rtl/in_digit.sv /tmp/rtl/joystick_controller.sv /tmp/rtl/paddle.sv /tmp/rtl/rand_gen.sv /tmp/rtl/vga_controller.sv"
+          if yosys -p "read_verilog -sv $SRCS; synth_xilinx -flatten -abc9 -family xc7 -top $TOP; write_json $TOP.json; stat" 2>&1 | tee synth.log; then
+            echo "flatten + abc9" > synth_mode.txt
+          else
+            echo "::warning::abc9 failed, falling back to plain abc"
+            yosys -p "read_verilog -sv $SRCS; synth_xilinx -flatten -family xc7 -top $TOP; write_json $TOP.json; stat" 2>&1 | tee synth.log
+            echo "flatten + abc (abc9 unavailable)" > synth_mode.txt
+          fi
+
+      # Compare the Yosys netlist with the Vivado routed power report utilization.
+      # The closer these counts are, the more defensible the timing comparison is.
+      - name: Compare Yosys netlist with Vivado utilization
+        run: |
+          python3 - << 'EOF'
+          import json, os, re
+          from collections import Counter
+
+          def out(s=""):
+              print(s)
+              p = os.environ.get("GITHUB_STEP_SUMMARY")
+              if p:
+                  with open(p, "a") as f:
+                      f.write(s + "\n")
+
+          top = os.environ["TOP"]
+          d = json.load(open(top + ".json"))
+          mods = d["modules"]
+          mod = mods.get(top) or next(iter(mods.values()))
+          c = Counter(cell["type"] for cell in mod["cells"].values())
+
+          lut   = sum(n for t, n in c.items() if re.fullmatch(r"LUT[1-6]", t))
+          srl   = sum(n for t, n in c.items() if t.startswith("SRL"))
+          ff    = sum(n for t, n in c.items() if re.fullmatch(r"FD[A-Z]E", t))
+          carry = c["CARRY4"]
+          bufg  = c["BUFG"]
+          mux   = c["MUXF7"] + c["MUXF8"]
+
+          # Reference numbers from the Vivado 2020.1 routed power report
+          rows = [
+              ("LUT as logic",       lut,   983),
+              ("LUT as shift reg",   srl,   5),
+              ("Registers",          ff,    309),
+              ("CARRY4",             carry, 221),
+              ("BUFG",               bufg,  1),
+          ]
+
+          out("## Netlist comparison: Yosys vs Vivado")
+          out(f"Yosys mode: **{open('synth_mode.txt').read().strip()}**")
+          out("")
+          out("| Resource | Yosys | Vivado | Yosys / Vivado |")
+          out("|---|---:|---:|---:|")
+          for name, y, v in rows:
+              ratio = f"{y / v:.2f}x" if v else "-"
+              out(f"| {name} | {y} | {v} | {ratio} |")
+          out(f"| MUXF7 + MUXF8 | {mux} | - | - |")
+          out("")
+          print("All Yosys cell types:", dict(c))
+          EOF
 
       - name: Build xc7z020clg484-1 chip database
         run: |
           pypy3 /nextpnr-xilinx/xilinx/python/bbaexport.py \
-            --device xc7z020clg484-1 \
-            --bba xc7z020clg484-1.bba
-          bbasm -l xc7z020clg484-1.bba xc7z020clg484-1.bin
+            --device $DEVICE \
+            --bba $DEVICE.bba
+          bbasm -l $DEVICE.bba $DEVICE.bin
 
-      - name: Combine physical pin map with expanded LVCMOS33 and 100 MHz clock
+      # No create_clock here on purpose: nextpnr-xilinx did not attach it to the
+      # clock net it analyzes (the net is named $iopadmap$clk). The target
+      # frequency is set with --freq in the next step instead.
+      - name: Combine physical pin map with expanded LVCMOS33
         run: |
           grep -v '\[\*\]' RC_proj.srcs/constrs_1/new/port_mapping.xdc > combined.xdc
           for bus in vga_r vga_g vga_b; do
@@ -55,22 +114,127 @@ jobs:
               echo "set_property IOSTANDARD LVCMOS33 [get_ports {${bus}[${bit}]}]" >> combined.xdc
             done
           done
-          echo "create_clock -period 10.000 -name clk [get_ports clk]" >> combined.xdc
 
-      - name: Place, route, and report timing delay
+      # Placement is randomized, so one run is one sample. Sweep seeds at each target.
+      #   100 MHz: official run, PASS/FAIL here is the analog of Vivado WNS >= 0
+      #   200 MHz: unreachable target, so the placer/router optimize for speed
+      - name: Place and route (target x seed sweep)
         run: |
-          nextpnr-xilinx \
-            --chipdb xc7z020clg484-1.bin \
-            --xdc combined.xdc \
-            --json vga_controller.json \
-            --fasm vga_controller.fasm 2>&1 | tee timing.log
+          mkdir -p pnr
+          for f in $TARGET_FREQS; do
+            for s in $SEEDS; do
+              echo "=== target ${f} MHz, seed ${s} ==="
+              if ! nextpnr-xilinx --freq "$f" --seed "$s" \
+                  --chipdb $DEVICE.bin --xdc combined.xdc \
+                  --json $TOP.json --fasm pnr/${TOP}_f${f}_s${s}.fasm \
+                  > pnr/f${f}_s${s}.log 2>&1; then
+                echo "::warning::nextpnr-xilinx failed for target ${f} MHz seed ${s}"
+                tail -n 5 pnr/f${f}_s${s}.log
+              fi
+            done
+          done
 
-          echo "=== EXTRACTED TIMING SUMMARY ==="
-          grep -E "Max frequency for clock|Critical path" timing.log || true
+      - name: Timing summary
+        run: |
           python3 - << 'EOF'
-          import re
-          log = open("timing.log").read()
-          for clk, fmax in re.findall(r"Max frequency for clock '([^']+)':\s*([\d.]+)\s*MHz", log):
-              delay = 1000.0 / float(fmax)
-              print(f"Clock: {clk} | Fmax: {fmax} MHz | Critical Path Delay: {delay:.3f} ns")
+          import glob, os, re, statistics, sys
+
+          def out(s=""):
+              print(s)
+              p = os.environ.get("GITHUB_STEP_SUMMARY")
+              if p:
+                  with open(p, "a") as f:
+                      f.write(s + "\n")
+
+          FMAX  = re.compile(r"Max frequency for clock '([^']+)':\s*([\d.]+)\s*MHz")
+          LOGIC = re.compile(r"([\d.]+) ns logic, ([\d.]+) ns routing")
+
+          targets = [int(t) for t in os.environ["TARGET_FREQS"].split()]
+          runs = []
+          for t in targets:
+              logs = glob.glob(f"pnr/f{t}_s*.log")
+              logs.sort(key=lambda p: int(re.search(r"_s(\d+)\.log", p).group(1)))
+              for log in logs:
+                  seed = int(re.search(r"_s(\d+)\.log", log).group(1))
+                  text = open(log, errors="ignore").read()
+                  # Main clock only: Vivado does not treat clk_div as a clock.
+                  # The LAST match is the post-route value (earlier ones are post-place).
+                  hits = [(n, float(v)) for n, v in FMAX.findall(text) if "clk_div" not in n]
+                  if not hits:
+                      continue
+                  clk, fmax = hits[-1]
+                  hdr = f"Critical path report for clock '{clk}'"
+                  pos = text.rfind(hdr)
+                  m = LOGIC.search(text, pos) if pos >= 0 else None
+                  runs.append(dict(
+                      target=t, seed=seed, clk=clk, fmax=fmax, period=1000.0 / fmax,
+                      logic=float(m.group(1)) if m else None,
+                      route=float(m.group(2)) if m else None,
+                      log=log,
+                  ))
+
+          if not runs:
+              out("No usable nextpnr results found. Check the logs in pnr/.")
+              sys.exit(1)
+
+          out("## nextpnr-xilinx post-route timing (main clock `clk` only)")
+          out("")
+          for t in targets:
+              rs = [r for r in runs if r["target"] == t]
+              if not rs:
+                  continue
+              budget = 1000.0 / t
+              out(f"### Target {t} MHz ({budget:.3f} ns)")
+              out("")
+              out("| Seed | Fmax (MHz) | Min period (ns) | Slack vs target (ns) | Logic / routing (ns) | Target met |")
+              out("|---:|---:|---:|---:|---:|:---:|")
+              for r in rs:
+                  lr = f"{r['logic']:.2f} / {r['route']:.2f}" if r["logic"] is not None else "-"
+                  met = "yes" if r["fmax"] >= t else "no"
+                  out(f"| {r['seed']} | {r['fmax']:.2f} | {r['period']:.3f} | {budget - r['period']:+.3f} | {lr} | {met} |")
+              fm = [r["fmax"] for r in rs]
+              out("")
+              out(f"Best {max(fm):.2f} MHz, median {statistics.median(fm):.2f} MHz, "
+                  f"worst {min(fm):.2f} MHz across {len(fm)} seeds.")
+              out("")
+
+          best = max(runs, key=lambda r: r["fmax"])
+          out("## Headline result")
+          out("")
+          out(f"- Best Fmax: **{best['fmax']:.2f} MHz** (min period **{best['period']:.3f} ns**), "
+              f"from target {best['target']} MHz, seed {best['seed']}")
+          out(f"- Approx. slack at 100 MHz (10 ns): {10.0 - best['period']:+.3f} ns "
+              f"(from nextpnr's delay model, not Vivado's)")
+          out("- This is the best of "
+              f"{len(runs)} runs; quote the range above alongside it.")
+          out("")
+
+          # Critical path of the best run (post-route report for the main clock)
+          lines = open(best["log"], errors="ignore").read().splitlines()
+          hdr = f"Critical path report for clock '{best['clk']}'"
+          idx = max((i for i, l in enumerate(lines) if hdr in l), default=None)
+          if idx is not None:
+              path = [lines[idx]]
+              for l in lines[idx + 1: idx + 80]:
+                  if ("Critical path report" in l or "Max frequency" in l
+                          or "Slack histogram" in l or not l.startswith("Info:")):
+                      break
+                  path.append(l)
+              out("### Critical path of the best run")
+              out("")
+              out("```")
+              for l in path:
+                  out(l)
+              out("```")
           EOF
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: timing-logs
+          path: |
+            synth.log
+            synth_mode.txt
+            combined.xdc
+            pnr/*.log

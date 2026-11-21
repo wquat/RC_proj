@@ -24,14 +24,14 @@ jobs:
           python3 - << 'EOF'
           import re
           path = "/tmp/rtl/paddle.sv"
-          text = open(path).read()
-          # Replace non-constant variable declaration initializers (e.g. = rx, = ry) with = 0
-          lines = []
-          for line in text.splitlines():
-              if re.match(r"^\s*(logic|reg|bit|int|integer)\b", line):
-                  line = re.sub(r"=\s*[a-zA-Z_]\w*", "= 0", line)
-              lines.append(line)
-          open(path, "w").write("\n".join(lines) + "\n")
+          lines = open(path).read().splitlines()
+          out = []
+          for idx, line in enumerate(lines, start=1):
+              # Sanitize non-constant declaration or initial-block assignments before line 79
+              if idx < 79 and not re.search(r"\b(localparam|parameter|assign)\b", line):
+                  line = re.sub(r"(?<![=!<>])=\s*(?!0\b)[^;,]+", "= 0", line)
+              out.append(line)
+          open(path, "w").write("\n".join(out) + "\n")
           EOF
 
       - name: Synthesize active RTL sources with Yosys

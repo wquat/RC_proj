@@ -1,0 +1,63 @@
+name: FPGA Post-Route Timing (100 MHz)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'RC_proj.srcs/**'
+      - '.github/workflows/timing.yml'
+
+jobs:
+  timing:
+    runs-on: ubuntu-latest
+    container:
+      image: regymm/openxc7:latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Synthesize active RTL sources with Yosys
+        run: |
+          yosys -p "
+            read_verilog -sv \
+              RC_proj.srcs/sources_1/new/digit_gen.sv \
+              RC_proj.srcs/sources_1/new/in_digit.sv \
+              RC_proj.srcs/sources_1/new/joystick_controller.sv \
+              RC_proj.srcs/sources_1/new/paddle.sv \
+              RC_proj.srcs/sources_1/new/rand_gen.sv \
+              RC_proj.srcs/sources_1/new/vga_controller.sv;
+            synth_xilinx -family xc7 -top vga_controller;
+            write_json vga_controller.json;
+            stat
+          "
+
+      - name: Build xc7z020clg484-1 chip database
+        run: |
+          pypy3 /nextpnr-xilinx/xilinx/python/bbaexport.py \
+            --device xc7z020clg484-1 \
+            --bba xc7z020clg484-1.bba
+          bbasm -l xc7z020clg484-1.bba xc7z020clg484-1.bin
+
+      - name: Combine physical pin map with 100 MHz clock constraint
+        run: |
+          grep -E 'PACKAGE_PIN|IOSTANDARD' RC_proj.srcs/constrs_1/new/port_mapping.xdc > combined.xdc || true
+          echo "create_clock -period 10.000 -name clk [get_ports clk]" >> combined.xdc
+
+      - name: Place, route, and report timing delay
+        run: |
+          nextpnr-xilinx \
+            --chipdb xc7z020clg484-1.bin \
+            --xdc combined.xdc \
+            --json vga_controller.json \
+            --fasm vga_controller.fasm 2>&1 | tee timing.log
+
+          echo "=== EXTRACTED TIMING SUMMARY ==="
+          grep -E "Max frequency for clock|Critical path" timing.log || true
+          python3 -c '
+          import re
+          log = open("timing.log").read()
+          for clk, fmax in re.findall(r"Max frequency for clock \x27([^\x27]+)\x27:\s*([\d.]+)\s*MHz", log):
+              delay = 1000.0 / float(fmax)
+              print(f"Clock: {clk} | Fmax: {fmax} MHz | Critical Path Delay: {delay:.3f} ns")
+          '
